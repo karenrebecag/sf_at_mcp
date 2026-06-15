@@ -1,0 +1,19 @@
+[Unit]
+Description=Salesforce ATFX MCP connector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The user whose ~/.sf holds the Salesforce CLI session (sf org login device).
+User=ubuntu
+WorkingDirectory=/opt/salesforce-atfx-mcp
+EnvironmentFile=/opt/salesforce-atfx-mcp/.env
+# Ensure node and sf are reachable; adjust if installed elsewhere.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/ubuntu/.local/bin
+ExecStart=/usr/bin/node /opt/salesforce-atfx-mcp/dist/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

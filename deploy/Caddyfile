@@ -1,0 +1,8 @@
+# Free, stable HTTPS for the connector. Caddy auto-provisions a Let's Encrypt
+# certificate for this hostname (ports 80 + 443 must be open and the DNS name
+# must point at this VM's public IP — e.g. a free DuckDNS subdomain).
+#
+# Replace the hostname, then: sudo caddy run --config /etc/caddy/Caddyfile
+salesforce-atfx.duckdns.org {
+    reverse_proxy localhost:8787
+}

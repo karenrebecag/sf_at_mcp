@@ -4,13 +4,12 @@ import {
   ListToolsRequestSchema,
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { SalesforceSession } from './salesforce.js';
 import { INSTRUCTIONS } from './instructions.js';
 import { handleSoqlQuery, soqlQuerySchema } from './tools/soql-query.js';
 import { handleDescribeObject, describeObjectSchema } from './tools/describe-object.js';
 import { handleGetOrgInfo, getOrgInfoSchema } from './tools/get-org-info.js';
 
-export function createServer(session: SalesforceSession): Server {
+export function createServer(): Server {
   const server = new Server(
     {
       name: 'salesforce-atfx-mcp',
@@ -26,7 +25,7 @@ export function createServer(session: SalesforceSession): Server {
       {
         name: 'salesforce_atfx_get_org_info',
         description:
-          'Get the authenticated user and the connected Salesforce org (instance URL, user, email, org id). Call first to confirm context.',
+          'Get the authenticated user and the connected Salesforce org (instance URL, user, org id). Call first to confirm context.',
         inputSchema: getOrgInfoSchema,
         annotations: { readOnlyHint: true, openWorldHint: true },
       },
@@ -51,11 +50,11 @@ export function createServer(session: SalesforceSession): Server {
     const { name, arguments: args = {} } = req.params;
     switch (name) {
       case 'salesforce_atfx_get_org_info':
-        return handleGetOrgInfo(session);
+        return handleGetOrgInfo();
       case 'salesforce_atfx_describe_object':
-        return handleDescribeObject(session, args as { sobject?: unknown });
+        return handleDescribeObject(args as { sobject?: unknown });
       case 'salesforce_atfx_soql_query':
-        return handleSoqlQuery(session, args as { query?: unknown });
+        return handleSoqlQuery(args as { query?: unknown });
       default:
         return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
     }

@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { query, type SalesforceSession } from '../salesforce.js';
+import { query } from '../salesforce.js';
 
 export const soqlQuerySchema = {
   type: 'object',
@@ -16,10 +16,7 @@ export const soqlQuerySchema = {
 
 const SELECT_ONLY = /^\s*SELECT\s/i;
 
-export async function handleSoqlQuery(
-  session: SalesforceSession,
-  args: { query?: unknown },
-): Promise<CallToolResult> {
+export async function handleSoqlQuery(args: { query?: unknown }): Promise<CallToolResult> {
   const soql = typeof args.query === 'string' ? args.query.trim() : '';
   if (!soql) {
     return {
@@ -35,7 +32,7 @@ export async function handleSoqlQuery(
   }
 
   try {
-    const result = await query(session, soql);
+    const result = await query(soql);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (err) {
     return { isError: true, content: [{ type: 'text', text: String(err) }] };

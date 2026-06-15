@@ -1,92 +1,114 @@
-# Salesforce ATFX — MCP custom connector
+# Salesforce ATFX — MCP custom connector (Claude web)
 
-Remote MCP server that lets **non-technical users in Claude web** query the ATFX
-Salesforce org in **read-only** mode. Each user signs in with **their own
-Salesforce account**; the connector runs every request under that user's
-permissions and sharing rules. No CLI, no install on the user side.
+Remote, **read-only** MCP server that lets users in **Claude web** query the ATFX
+Salesforce org. It needs **no admin** and **no Connected App**: data access rides
+the locally-authenticated **`sf` CLI**, so the server never holds a Salesforce
+token. It runs as a small always-on process (e.g. a free Oracle Cloud VM) and is
+exposed over HTTPS.
 
-## How auth works
+> All queries run as a single shared, CLI-authenticated user (a service identity).
+> Everyone using the connector sees what that user can see. Read-only by design.
 
-The server is both an OAuth Authorization Server (to Claude) and an OAuth client
-(to Salesforce). It is **stateless** — every credential is carried inside
-encrypted JWE tokens, so there is no database.
+## How it works
 
 ```
-Claude web ──/register──▶ server                      (Dynamic Client Registration)
-Claude web ──/authorize─▶ server ──302──▶ Salesforce login
-                                   user authorizes the Connected App
-Salesforce ──/callback──▶ server  (exchanges SF code for a refresh token)
-server ─────302─────────▶ Claude  (with our PKCE-bound auth code)
-Claude web ──/token─────▶ server  (verifies PKCE, issues access/refresh JWE)
-Claude web ──/mcp───────▶ server  (Bearer JWE → refresh SF token → REST call)
+Claude web ──HTTPS──▶ this server ──shells out──▶ sf CLI ──▶ Salesforce ATFX
+                         (token in URL gate)        (owns the session / refresh)
 ```
+
+- No Salesforce OAuth in this codebase. Auth is established once on the host with
+  `sf org login device`; the CLI transparently refreshes the session afterwards.
+- The connector is gated by a shared secret in the URL:
+  `https://<host>/<MCP_ACCESS_TOKEN>/mcp`. Treat that URL like a password.
 
 ## Tools (read-only)
 
 | Tool | Purpose |
 |------|---------|
-| `salesforce_atfx_get_org_info` | Authenticated user + connected org |
+| `salesforce_atfx_get_org_info` | Connected user + org |
 | `salesforce_atfx_describe_object` | sObject fields, types, relationships |
 | `salesforce_atfx_soql_query` | Run a SOQL `SELECT` |
 
-## One-time setup
+The SOQL tool rejects anything that is not a `SELECT`.
 
-### 1. Create a Connected App in the ATFX org
+## Deploy on a free Oracle Cloud "Always Free" VM
 
-Setup → App Manager → New Connected App (or External Client App):
+### 1. Create the VM
+Oracle Cloud → create an **Always Free** VM (Ubuntu 22.04, ARM `VM.Standard.A1`
+or AMD micro). Open inbound **TCP 80 and 443** in the VCN security list. SSH in.
 
-- **Enable OAuth Settings**: on
-- **Callback URL**: `https://<your-deploy>.vercel.app/callback`
-- **OAuth Scopes**: `Access and manage your data (api)`,
-  `Perform requests on your behalf at any time (refresh_token, offline_access)`
-- Save and copy the **Consumer Key** and **Consumer Secret**.
-
-### 2. Configure environment variables
-
-Copy `.env.example` and set these (locally and in Vercel → Project → Settings →
-Environment Variables):
-
-| Var | Value |
-|-----|-------|
-| `SF_CLIENT_ID` | Connected App Consumer Key |
-| `SF_CLIENT_SECRET` | Connected App Consumer Secret |
-| `SF_LOGIN_URL` | `https://login.salesforce.com` |
-| `SF_API_VERSION` | `67.0` |
-| `OAUTH_ENCRYPTION_SECRET` | `openssl rand -base64 48` |
-| `PUBLIC_BASE_URL` | your deployment URL, no trailing slash |
-
-### 3. Deploy
-
+### 2. Install Node + the Salesforce CLI
 ```bash
-pnpm install
-pnpm verify      # check + lint + format + test
-vercel deploy    # then vercel deploy --prod
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+sudo npm install -g @salesforce/cli
+sf --version
 ```
 
-Make sure the Connected App callback URL and `PUBLIC_BASE_URL` match the final
-production URL.
+### 3. Deploy this app
+```bash
+sudo git clone https://github.com/karenrebecag/sf_at_mcp.git /opt/salesforce-atfx-mcp
+sudo chown -R ubuntu:ubuntu /opt/salesforce-atfx-mcp
+cd /opt/salesforce-atfx-mcp
+npm install        # or: corepack pnpm install
+npm run build
+cp .env.example .env
+# edit .env: set MCP_ACCESS_TOKEN (openssl rand -hex 24), SF_TARGET_ORG=atfx
+```
 
-## Add the connector in Claude web
+### 4. Authenticate Salesforce (once, no admin needed)
+```bash
+sf org login device --alias atfx --instance-url https://login.salesforce.com
+```
+It prints a code + URL. Open the URL **in your laptop browser**, log in with the
+ATFX user, enter the code. The VM is now authenticated. Verify:
+```bash
+sf org display --target-org atfx
+```
 
+### 5. Run as a service
+```bash
+sudo cp deploy/salesforce-atfx-mcp.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now salesforce-atfx-mcp
+curl localhost:8787/health      # -> {"status":"ok"}
+```
+
+### 6. Expose over HTTPS (free + stable)
+
+**Option A — Caddy + DuckDNS (recommended, $0, stable URL):**
+Get a free subdomain at duckdns.org pointed at the VM's public IP, then:
+```bash
+sudo apt-get install -y caddy
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # edit the hostname first
+sudo systemctl restart caddy
+```
+Caddy auto-issues a Let's Encrypt cert. Your base URL is
+`https://<name>.duckdns.org`.
+
+**Option B — Cloudflare Tunnel** (no open ports; needs a Cloudflare account, and a
+stable hostname requires a domain on Cloudflare):
+```bash
+cloudflared tunnel --url http://localhost:8787
+```
+
+### 7. Add the connector in Claude web
 Settings → Connectors → **Add custom connector** → URL:
-
 ```
-https://<your-deploy>.vercel.app/mcp
+https://<your-host>/<MCP_ACCESS_TOKEN>/mcp
 ```
-
-Claude will run the OAuth flow; the user logs into Salesforce and is ready.
 
 ## Local development
-
 ```bash
 pnpm install
-pnpm test        # vitest
-pnpm check:api   # typecheck api/ + src/
+pnpm test          # vitest (tool guards; no live org needed)
+pnpm check         # typecheck
+pnpm dev           # runs the server with tsx
 ```
 
-## Notes
-
-- Read-only by design: there are no create/update/delete tools. The SOQL tool
-  rejects anything that is not a `SELECT`.
-- Salesforce access tokens are never stored or returned in clear text — only the
-  refresh token, encrypted inside the Bearer token, is held by the client.
+## Operational notes
+- The VM must stay on. If `sf`'s session is ever revoked (password change, admin
+  action) or expires, re-run `sf org login device`.
+- Rotate access: change `MCP_ACCESS_TOKEN` in `.env` and restart the service; the
+  old connector URL stops working.
+- Read-only by design — there are no write tools.

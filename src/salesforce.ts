@@ -1,75 +1,70 @@
 /**
- * Minimal read-only Salesforce REST client built on fetch.
+ * Read-only Salesforce access via the `sf` CLI.
  *
- * The MCP layer never holds a long-lived Salesforce access token: it stores the
- * refresh token (inside the encrypted Bearer it hands Claude) and mints a fresh
- * access token per session via `refreshAccessToken`.
+ * The server shells out to the locally-authenticated Salesforce CLI instead of
+ * holding any OAuth token itself. The CLI owns the session (it transparently
+ * refreshes the access token from the refresh token in its keychain), so this
+ * process never sees or stores a credential. Auth is established once with
+ * `sf org login device` on the host.
+ *
+ * execFile (no shell) is used so query/sobject arguments cannot be interpreted
+ * by a shell — no command injection.
  */
-const API_VERSION = process.env.SF_API_VERSION ?? '67.0';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var: ${name}`);
-  return v;
+const run = promisify(execFile);
+
+const SF_BIN = process.env.SF_BIN ?? 'sf';
+const MAX_BUFFER = 20 * 1024 * 1024; // 20 MB — query results can be large
+const TIMEOUT_MS = 60_000;
+
+function targetOrg(): string {
+  return process.env.SF_TARGET_ORG ?? 'atfx';
 }
 
-export interface SalesforceSession {
-  accessToken: string;
-  instanceUrl: string;
+interface SfEnvelope<T> {
+  status: number;
+  result: T;
+  message?: string;
+  name?: string;
 }
 
-/** Exchange a refresh token for a fresh access token + instance URL. */
-export async function refreshAccessToken(refreshToken: string): Promise<SalesforceSession> {
-  const loginUrl = process.env.SF_LOGIN_URL ?? 'https://login.salesforce.com';
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    client_id: requireEnv('SF_CLIENT_ID'),
-    client_secret: requireEnv('SF_CLIENT_SECRET'),
-    refresh_token: refreshToken,
-  });
-
-  const res = await fetch(`${loginUrl}/services/oauth2/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`Salesforce token refresh failed (${res.status}): ${text}`);
+async function runSf<T>(args: string[]): Promise<T> {
+  let stdout: string;
+  try {
+    const r = await run(SF_BIN, [...args, '--json'], {
+      maxBuffer: MAX_BUFFER,
+      timeout: TIMEOUT_MS,
+    });
+    stdout = r.stdout;
+  } catch (err) {
+    // sf exits non-zero on Salesforce errors but still prints a JSON envelope.
+    const e = err as { stdout?: string; message?: string };
+    if (!e.stdout) throw new Error(e.message ?? 'sf command failed to run');
+    stdout = e.stdout;
   }
 
-  const data = (await res.json()) as { access_token: string; instance_url: string };
-  return { accessToken: data.access_token, instanceUrl: data.instance_url };
-}
-
-async function sfGet(session: SalesforceSession, path: string): Promise<unknown> {
-  const res = await fetch(`${session.instanceUrl}${path}`, {
-    headers: {
-      Authorization: `Bearer ${session.accessToken}`,
-      Accept: 'application/json',
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`Salesforce request failed (${res.status}): ${text}`);
+  let parsed: SfEnvelope<T>;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error('Could not parse sf CLI output');
   }
-  return res.json();
+  if (parsed.status !== 0) {
+    throw new Error(parsed.message ?? parsed.name ?? 'sf command returned an error');
+  }
+  return parsed.result;
 }
 
-/** Run a read-only SOQL query. */
-export function query(session: SalesforceSession, soql: string): Promise<unknown> {
-  return sfGet(session, `/services/data/v${API_VERSION}/query?q=${encodeURIComponent(soql)}`);
+export function query(soql: string): Promise<unknown> {
+  return runSf(['data', 'query', '--query', soql, '--target-org', targetOrg()]);
 }
 
-/** Describe an sObject's metadata (fields, types, relationships). */
-export function describe(session: SalesforceSession, sobject: string): Promise<unknown> {
-  const safe = encodeURIComponent(sobject);
-  return sfGet(session, `/services/data/v${API_VERSION}/sobjects/${safe}/describe`);
+export function describe(sobject: string): Promise<unknown> {
+  return runSf(['sobject', 'describe', '--sobject', sobject, '--target-org', targetOrg()]);
 }
 
-/** Current user / org identity. */
-export function userInfo(session: SalesforceSession): Promise<unknown> {
-  return sfGet(session, `/services/oauth2/userinfo`);
+export function orgInfo(): Promise<unknown> {
+  return runSf(['org', 'display', '--target-org', targetOrg()]);
 }

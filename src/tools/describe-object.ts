@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { describe, type SalesforceSession } from '../salesforce.js';
+import { describe } from '../salesforce.js';
 
 export const describeObjectSchema = {
   type: 'object',
@@ -14,10 +14,7 @@ export const describeObjectSchema = {
   additionalProperties: false,
 } as const;
 
-export async function handleDescribeObject(
-  session: SalesforceSession,
-  args: { sobject?: unknown },
-): Promise<CallToolResult> {
+export async function handleDescribeObject(args: { sobject?: unknown }): Promise<CallToolResult> {
   const sobject = typeof args.sobject === 'string' ? args.sobject.trim() : '';
   if (!sobject) {
     return {
@@ -27,7 +24,7 @@ export async function handleDescribeObject(
   }
 
   try {
-    const result = (await describe(session, sobject)) as {
+    const result = (await describe(sobject)) as {
       name?: string;
       label?: string;
       fields?: Array<{ name: string; label: string; type: string; relationshipName?: string }>;
