@@ -1,0 +1,33 @@
+{
+  "name": "salesforce-atfx-mcp",
+  "version": "0.1.0",
+  "description": "Remote MCP custom connector for Claude web — per-user Salesforce OAuth access to the ATFX org (SOQL, describe, DML)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "check:api": "tsc --noEmit -p tsconfig.check.json",
+    "lint": "eslint src/ api/",
+    "format": "prettier --write 'src/**/*.ts' 'api/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'api/**/*.ts'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "pnpm check && pnpm check:api && pnpm lint && pnpm format:check && pnpm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "jose": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vercel/node": "^5.0.0",
+    "eslint": "^9.0.0",
+    "@eslint/js": "^9.0.0",
+    "typescript-eslint": "^8.0.0",
+    "prettier": "^3.4.0",
+    "vitest": "^3.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.0"
+  }
+}
