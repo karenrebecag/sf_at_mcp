@@ -2,9 +2,12 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { INSTRUCTIONS } from './instructions.js';
+import { SCHEMA_MD, SCHEMA_RESOURCE_URI } from './schema.js';
 import { handleSoqlQuery, soqlQuerySchema } from './tools/soql-query.js';
 import { handleDescribeObject, describeObjectSchema } from './tools/describe-object.js';
 import { handleGetOrgInfo, getOrgInfoSchema } from './tools/get-org-info.js';
@@ -17,8 +20,29 @@ export function createServer(): Server {
       title: 'Salesforce ATFX',
       description: 'Read-only access to the ATFX Salesforce org (SOQL, describe, org info).',
     },
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+    { capabilities: { tools: {}, resources: {} }, instructions: INSTRUCTIONS },
   );
+
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [
+      {
+        uri: SCHEMA_RESOURCE_URI,
+        name: 'ATFX Salesforce data dictionary',
+        description:
+          'Curated schema: key objects (Lead, Account, Contact), high-signal fields, picklist values and SOQL patterns. Read before building queries with unfamiliar fields.',
+        mimeType: 'text/markdown',
+      },
+    ],
+  }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+    if (req.params.uri !== SCHEMA_RESOURCE_URI) {
+      throw new Error(`Unknown resource: ${req.params.uri}`);
+    }
+    return {
+      contents: [{ uri: SCHEMA_RESOURCE_URI, mimeType: 'text/markdown', text: SCHEMA_MD }],
+    };
+  });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
