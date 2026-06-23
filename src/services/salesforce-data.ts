@@ -1,4 +1,5 @@
 import { truncateQueryResult } from '../core/format/truncate-result.js';
+import { assertSoqlQueryLocator } from '../core/query-locator.js';
 import { prepareSoql } from '../core/soql-guards.js';
 import { describe, orgInfo, query, queryMore } from '../salesforce.js';
 
@@ -23,17 +24,26 @@ export async function runSoql(
   raw?: string,
   options: RunSoqlOptions = {},
 ): Promise<{ result: unknown; warnings: string[]; truncated: boolean; hints: string[] }> {
+  const queryText = raw?.trim() ?? '';
+  const locatorText = options.queryLocator?.trim() ?? '';
+
+  if (queryText && locatorText) {
+    throw new Error('Provide query or queryLocator, not both.');
+  }
+  if (!queryText && !locatorText) {
+    throw new Error('Provide either a SOQL query or queryLocator.');
+  }
+
   const warnings: string[] = [];
   let result: unknown;
 
-  if (options.queryLocator) {
-    result = await queryMore(options.queryLocator);
-  } else if (raw) {
-    const prepared = prepareSoql(raw);
+  if (locatorText) {
+    const path = assertSoqlQueryLocator(locatorText);
+    result = await queryMore(path);
+  } else {
+    const prepared = prepareSoql(queryText);
     warnings.push(...prepared.warnings);
     result = await query(prepared.soql);
-  } else {
-    throw new Error('Provide either a SOQL query or queryLocator.');
   }
 
   const { result: shaped, truncated, hints } = truncateQueryResult(result, options.maxRecords);

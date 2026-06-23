@@ -12,7 +12,10 @@
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { normalizeQueryLocator } from './core/query-locator.js';
 import * as fixtures from './salesforce.fixtures.js';
+
+export { normalizeQueryLocator } from './core/query-locator.js';
 
 const run = promisify(execFile);
 
@@ -59,17 +62,6 @@ async function runSf<T>(args: string[]): Promise<T> {
     throw new Error(parsed.message ?? parsed.name ?? 'sf command returned an error');
   }
   return parsed.result;
-}
-
-/** Strip instance host from a full nextRecordsUrl — sf api request rest wants a path. */
-export function normalizeQueryLocator(locator: string): string {
-  const trimmed = locator.trim();
-  try {
-    if (trimmed.startsWith('http')) return new URL(trimmed).pathname + new URL(trimmed).search;
-  } catch {
-    /* fall through */
-  }
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
 function useFixtures(): boolean {

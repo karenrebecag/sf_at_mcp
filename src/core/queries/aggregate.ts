@@ -1,4 +1,5 @@
 import { assertSupportedObject, countryFieldFor, type PrimaryObject } from '../objects.js';
+import { assertSoqlFieldName } from '../soql-fields.js';
 import { assertDateLiteral, assertDays } from './period.js';
 
 export interface AggregateInput {
@@ -20,14 +21,15 @@ export function buildAggregateQuery(input: AggregateInput): string {
   if (groupBy.length === 0) {
     throw new Error('groupBy must include at least one field (e.g. Owner.Name, Status).');
   }
+  const safeGroupBy = groupBy.map(assertSoqlFieldName);
 
   const metric = input.metric ?? 'count';
-  const select = [...groupBy, METRIC_EXPR[metric]].join(', ');
+  const select = [...safeGroupBy, METRIC_EXPR[metric]].join(', ');
   const where = buildWhere(object, input);
   const order = `ORDER BY ${metric === 'count' ? 'COUNT(Id)' : 'COUNT(Id)'} ${input.orderBy === 'asc' ? 'ASC' : 'DESC'}`;
   const limit = input.limit ? ` LIMIT ${clampLimit(input.limit)}` : '';
 
-  return `SELECT ${select} FROM ${object}${where} GROUP BY ${groupBy.join(', ')} ${order}${limit}`;
+  return `SELECT ${select} FROM ${object}${where} GROUP BY ${safeGroupBy.join(', ')} ${order}${limit}`;
 }
 
 function buildWhere(object: PrimaryObject, input: AggregateInput): string {
@@ -45,7 +47,7 @@ function buildWhere(object: PrimaryObject, input: AggregateInput): string {
       clauses.push(`${countryFieldFor(object)} = '${country}'`);
       continue;
     }
-    clauses.push(formatFilter(field, value));
+    clauses.push(formatFilter(assertSoqlFieldName(field), value));
   }
 
   return clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';

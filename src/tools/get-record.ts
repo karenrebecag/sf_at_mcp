@@ -1,4 +1,4 @@
-import { assertSupportedObject } from '../core/objects.js';
+import { buildGetRecordQuery } from '../core/records.js';
 import { errorToolResult, jsonToolResult, mergeMeta } from '../core/format/tool-result.js';
 import { runSoql } from '../services/salesforce-data.js';
 
@@ -17,20 +17,15 @@ export const getRecordSchema = {
   additionalProperties: false,
 } as const;
 
-const DEFAULT_FIELDS = ['Id', 'Name', 'Owner.Name', 'CreatedDate'];
-
 export async function handleGetRecord(args: Record<string, unknown>) {
   const object = typeof args.object === 'string' ? args.object.trim() : '';
   const id = typeof args.id === 'string' ? args.id.trim() : '';
   if (!object || !id) return errorToolResult('Missing required parameters: object and id');
 
   try {
-    const sobject = assertSupportedObject(object);
     const fields =
-      Array.isArray(args.fields) && args.fields.length > 0
-        ? args.fields.map(String)
-        : DEFAULT_FIELDS;
-    const soql = `SELECT ${fields.join(', ')} FROM ${sobject} WHERE Id = '${id.replace(/'/g, "\\'")}' LIMIT 1`;
+      Array.isArray(args.fields) && args.fields.length > 0 ? args.fields.map(String) : undefined;
+    const soql = buildGetRecordQuery(object, id, fields);
     const { result, warnings, hints } = await runSoql(soql, { maxRecords: 1 });
     const meta = mergeMeta({ soql }, warnings.length ? { warnings } : {});
     return jsonToolResult(result, meta, { hints });

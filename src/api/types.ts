@@ -6,6 +6,7 @@ export interface ApiContext {
   pathname: string;
   searchParams: URLSearchParams;
   body: unknown;
+  params: Record<string, string>;
 }
 
 export type ApiHandler = (ctx: ApiContext) => Promise<void>;

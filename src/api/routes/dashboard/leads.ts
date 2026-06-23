@@ -1,49 +1,43 @@
 import { leadConversionRate, leadsByBdm, leadsByCountry } from '../../queries/leads.js';
-import { sendJson } from '../../http.js';
+import { sendApiError, sendApiResult } from '../../response.js';
 import { runSoql } from '../../../services/salesforce-data.js';
 import type { ApiHandler } from '../../types.js';
 
 export const getLeadsByBdm: ApiHandler = async ({ res, searchParams }) => {
   const period = searchParams.get('period') ?? 'THIS_MONTH';
   try {
-    const { result } = await runSoql(leadsByBdm(period));
-    sendJson(res, 200, { data: result, meta: { period } });
+    const soql = leadsByBdm(period);
+    const { result } = await runSoql(soql);
+    sendApiResult(res, 200, result, { period, soql });
   } catch (err) {
-    const message = String(err);
-    const status = message.includes('Invalid SOQL') ? 400 : 502;
-    sendJson(res, status, { error: status === 400 ? 'bad_request' : 'salesforce_error', message });
+    sendApiError(res, String(err));
   }
 };
 
 export const getLeadsByCountry: ApiHandler = async ({ res, searchParams }) => {
   const days = Number(searchParams.get('days') ?? '30');
   try {
-    const { result } = await runSoql(leadsByCountry(days));
-    sendJson(res, 200, { data: result, meta: { days } });
+    const soql = leadsByCountry(days);
+    const { result } = await runSoql(soql);
+    sendApiResult(res, 200, result, { days, soql });
   } catch (err) {
-    const message = String(err);
-    const status = message.includes('days must') ? 400 : 502;
-    sendJson(res, status, { error: status === 400 ? 'bad_request' : 'salesforce_error', message });
+    sendApiError(res, String(err));
   }
 };
 
 export const getLeadConversionRate: ApiHandler = async ({ res, searchParams }) => {
   const days = Number(searchParams.get('days') ?? '30');
   try {
+    const queries = leadConversionRate(days);
     const [totalResult, convertedResult] = await Promise.all(
-      leadConversionRate(days).map(async (q) => (await runSoql(q)).result),
+      queries.map(async (q) => (await runSoql(q)).result),
     );
     const total = extractCount(totalResult);
     const converted = extractCount(convertedResult);
     const rate = total > 0 ? converted / total : 0;
-    sendJson(res, 200, {
-      data: { total, converted, rate },
-      meta: { days },
-    });
+    sendApiResult(res, 200, { total, converted, rate }, { days, soql: queries });
   } catch (err) {
-    const message = String(err);
-    const status = message.includes('days must') ? 400 : 502;
-    sendJson(res, status, { error: status === 400 ? 'bad_request' : 'salesforce_error', message });
+    sendApiError(res, String(err));
   }
 };
 

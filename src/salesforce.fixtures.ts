@@ -34,9 +34,24 @@ export const FIXTURE_LEAD_DESCRIBE = {
 };
 
 export function fixtureQuery(soql: string): unknown {
+  if (/COUNT\(Id\)\s+total/i.test(soql)) {
+    return { records: [{ total: 100 }], totalSize: 1, done: true };
+  }
+  if (/COUNT\(Id\)\s+converted/i.test(soql)) {
+    return { records: [{ converted: 25 }], totalSize: 1, done: true };
+  }
   if (/COUNT\(Id\).*GROUP BY Owner\.Name/i.test(soql)) {
     return {
       records: [{ attributes: { type: 'AggregateResult' }, Name: 'BDM One', cnt: 12 }],
+      totalSize: 1,
+      done: true,
+    };
+  }
+  if (/GROUP BY Country_of_Residence_Lead__c/i.test(soql)) {
+    return {
+      records: [
+        { attributes: { type: 'AggregateResult' }, Country_of_Residence_Lead__c: 'MEX', cnt: 5 },
+      ],
       totalSize: 1,
       done: true,
     };

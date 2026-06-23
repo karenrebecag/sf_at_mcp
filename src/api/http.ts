@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+export const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+
 export function setCorsHeaders(res: ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -13,11 +15,21 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
 
 export async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let size = 0;
+  for await (const c of req) {
+    const chunk = c as Buffer;
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) {
+      throw new Error('Request body too large');
+    }
+    chunks.push(chunk);
+  }
   if (chunks.length === 0) return undefined;
+  const text = Buffer.concat(chunks).toString('utf8').trim();
+  if (!text) return undefined;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return JSON.parse(text);
   } catch {
-    return undefined;
+    throw new Error('Invalid JSON body');
   }
 }

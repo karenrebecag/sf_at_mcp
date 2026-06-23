@@ -59,7 +59,15 @@ const httpServer = createHttpServer(async (req, res) => {
     return;
   }
 
-  const body = await readBody(req);
+  let body: unknown;
+  try {
+    body = await readBody(req);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Invalid JSON body';
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad_request', message }));
+    return;
+  }
   const server = createServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 

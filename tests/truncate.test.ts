@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { truncateQueryResult } from '../src/core/format/truncate-result.js';
-import { normalizeQueryLocator } from '../src/salesforce.js';
 
 describe('truncateQueryResult', () => {
   it('truncates large record sets', () => {
@@ -19,13 +18,5 @@ describe('truncateQueryResult', () => {
     };
     const { hints } = truncateQueryResult(raw, 50);
     expect(hints.some((h) => h.includes('queryLocator'))).toBe(true);
-  });
-});
-
-describe('normalizeQueryLocator', () => {
-  it('strips host from full URL', () => {
-    expect(
-      normalizeQueryLocator('https://atgs.my.salesforce.com/services/data/v67.0/query/01gXXX'),
-    ).toBe('/services/data/v67.0/query/01gXXX');
   });
 });

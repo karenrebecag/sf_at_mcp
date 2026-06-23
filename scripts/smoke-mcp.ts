@@ -29,7 +29,11 @@ interface JsonRpcResponse {
   error?: { message: string };
 }
 
-async function mcpCall(method: string, params: Record<string, unknown> = {}, id = 1): Promise<JsonRpcResponse> {
+async function mcpCall(
+  method: string,
+  params: Record<string, unknown> = {},
+  id = 1,
+): Promise<JsonRpcResponse> {
   const res = await fetch(MCP_URL, {
     method: 'POST',
     headers: {
@@ -65,7 +69,11 @@ async function waitForHealth(timeoutMs = 15_000): Promise<void> {
   throw new Error(`Server not healthy at ${BASE}/health after ${timeoutMs}ms`);
 }
 
-const TOOL_CASES: Array<{ name: string; args: Record<string, unknown>; assert: (text: string) => void }> = [
+const TOOL_CASES: Array<{
+  name: string;
+  args: Record<string, unknown>;
+  assert: (text: string) => void;
+}> = [
   {
     name: 'salesforce_atfx_get_org_info',
     args: {},
@@ -131,7 +139,8 @@ async function main() {
 
   const tools = await mcpCall('tools/list', {}, 2);
   const names = tools.result?.tools?.map((t) => t.name) ?? [];
-  if (names.length < 7) throw new Error(`Expected 7 tools, got ${names.length}: ${names.join(', ')}`);
+  if (names.length < 7)
+    throw new Error(`Expected 7 tools, got ${names.length}: ${names.join(', ')}`);
 
   const resources = await mcpCall('resources/list', {}, 3);
   if ((resources.result?.resources?.length ?? 0) < 4) {
@@ -148,7 +157,11 @@ async function main() {
 
   // Pagination follow-up
   process.stdout.write('  • soql_query pagination ... ');
-  const page1 = await callTool('salesforce_atfx_soql_query', { query: 'SELECT Id, Name FROM Lead' }, id++);
+  const page1 = await callTool(
+    'salesforce_atfx_soql_query',
+    { query: 'SELECT Id, Name FROM Lead' },
+    id++,
+  );
   const parsed = JSON.parse(page1) as { data: { nextRecordsUrl?: string } };
   const locator = parsed.data?.nextRecordsUrl;
   if (!locator) throw new Error('missing nextRecordsUrl in page1');
@@ -159,7 +172,11 @@ async function main() {
   // Describe cache — second call should hit cache
   process.stdout.write('  • describe cache ... ');
   await callTool('salesforce_atfx_describe_object', { sobject: 'Lead', mode: 'picklists' }, id++);
-  const cached = await callTool('salesforce_atfx_describe_object', { sobject: 'Lead', mode: 'picklists' }, id++);
+  const cached = await callTool(
+    'salesforce_atfx_describe_object',
+    { sobject: 'Lead', mode: 'picklists' },
+    id++,
+  );
   if (!cached.includes('"cached": true')) throw new Error('second describe should be cached');
   console.log('ok');
 

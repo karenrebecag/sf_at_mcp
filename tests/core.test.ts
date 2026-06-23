@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { assertSupportedObject } from '../src/core/objects.js';
-import { prepareSoql } from '../src/core/soql-guards.js';
+import { assertSelectQuery, prepareSoql } from '../src/core/soql-guards.js';
 import { buildAggregateQuery } from '../src/core/queries/aggregate.js';
+import { leadConversionRate, leadsByBdm, leadsByCountry } from '../src/core/queries/leads.js';
 import { buildSearchQuery } from '../src/core/queries/search.js';
 
 describe('core objects', () => {
@@ -27,6 +28,42 @@ describe('soql guards', () => {
 
   it('allows Account aggregates', () => {
     expect(() => prepareSoql('SELECT Type, COUNT(Id) FROM Account GROUP BY Type')).not.toThrow();
+  });
+
+  it('rejects Opportunity in SOQL', () => {
+    expect(() => prepareSoql('SELECT Id FROM Opportunity LIMIT 1')).toThrow(/does not exist/);
+  });
+});
+
+describe('api query guard', () => {
+  it('allows SELECT', () => {
+    expect(() => assertSelectQuery('SELECT Id FROM Lead LIMIT 1')).not.toThrow();
+  });
+
+  it('rejects mutations', () => {
+    expect(() => assertSelectQuery('DELETE FROM Account')).toThrow(/read-only/i);
+  });
+});
+
+describe('dashboard SOQL builders', () => {
+  it('builds leads by bdm with default period', () => {
+    expect(leadsByBdm()).toContain('CreatedDate = THIS_MONTH');
+    expect(leadsByBdm('LAST_MONTH')).toContain('CreatedDate = LAST_MONTH');
+  });
+
+  it('rejects invalid date literals', () => {
+    expect(() => leadsByBdm('DROP TABLE')).toThrow(/Invalid SOQL date literal/);
+  });
+
+  it('builds leads by country with bounded days', () => {
+    expect(leadsByCountry(30)).toContain('LAST_N_DAYS:30');
+    expect(() => leadsByCountry(0)).toThrow(/days must/);
+  });
+
+  it('builds conversion rate pair', () => {
+    const [total, converted] = leadConversionRate(7);
+    expect(total).toContain('COUNT(Id) total');
+    expect(converted).toContain('IsConverted = true');
   });
 });
 

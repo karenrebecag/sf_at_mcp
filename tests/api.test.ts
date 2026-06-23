@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeApiPath } from '../src/api/auth.js';
-import { assertSelectQuery } from '../src/core/soql-guards.js';
-import { leadConversionRate, leadsByBdm, leadsByCountry } from '../src/core/queries/leads.js';
+import { normalizeApiPath, presentedToken, tokenMatches } from '../src/api/auth.js';
+import { mockReq, TEST_ACCESS_TOKEN } from './helpers/api-server.js';
 
 describe('api auth paths', () => {
   it('normalizes token-prefixed api paths', () => {
@@ -22,34 +21,33 @@ describe('api auth paths', () => {
   });
 });
 
-describe('api query guard', () => {
-  it('allows SELECT', () => {
-    expect(() => assertSelectQuery('SELECT Id FROM Lead LIMIT 1')).not.toThrow();
+describe('api token auth', () => {
+  it('matches the configured access token', () => {
+    expect(tokenMatches(TEST_ACCESS_TOKEN)).toBe(true);
   });
 
-  it('rejects mutations', () => {
-    expect(() => assertSelectQuery('DELETE FROM Account')).toThrow(/read-only/i);
-  });
-});
-
-describe('dashboard SOQL builders', () => {
-  it('builds leads by bdm with default period', () => {
-    expect(leadsByBdm()).toContain('CreatedDate = THIS_MONTH');
-    expect(leadsByBdm('LAST_MONTH')).toContain('CreatedDate = LAST_MONTH');
+  it('rejects missing or wrong tokens', () => {
+    expect(tokenMatches(undefined)).toBe(false);
+    expect(tokenMatches('wrong-token-0123456789012345')).toBe(false);
+    expect(tokenMatches(`${TEST_ACCESS_TOKEN}x`)).toBe(false);
   });
 
-  it('rejects invalid date literals', () => {
-    expect(() => leadsByBdm('DROP TABLE')).toThrow(/Invalid SOQL date literal/);
+  it('extracts token from path prefix', () => {
+    expect(presentedToken(mockReq(), '/my-token/api/org')).toBe('my-token');
+    expect(presentedToken(mockReq(), '/my-token/api')).toBe('my-token');
   });
 
-  it('builds leads by country with bounded days', () => {
-    expect(leadsByCountry(30)).toContain('LAST_N_DAYS:30');
-    expect(() => leadsByCountry(0)).toThrow(/days must/);
+  it('extracts token from Authorization Bearer header', () => {
+    const req = mockReq({ authorization: 'Bearer header-token-value' });
+    expect(presentedToken(req, '/api/org')).toBe('header-token-value');
   });
 
-  it('builds conversion rate pair', () => {
-    const [total, converted] = leadConversionRate(7);
-    expect(total).toContain('COUNT(Id) total');
-    expect(converted).toContain('IsConverted = true');
+  it('prefers path prefix over Bearer header', () => {
+    const req = mockReq({ authorization: 'Bearer header-token' });
+    expect(presentedToken(req, '/path-token/api/org')).toBe('path-token');
+  });
+
+  it('returns undefined when no credentials are present', () => {
+    expect(presentedToken(mockReq(), '/api/org')).toBeUndefined();
   });
 });
