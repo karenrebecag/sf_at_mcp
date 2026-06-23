@@ -3,7 +3,7 @@ import { handleSoqlQuery } from '../src/tools/soql-query.js';
 import { handleDescribeObject } from '../src/tools/describe-object.js';
 
 describe('soql-query tool', () => {
-  it('rejects a missing query', async () => {
+  it('rejects when query and queryLocator are both missing', async () => {
     const r = await handleSoqlQuery({});
     expect(r.isError).toBe(true);
   });

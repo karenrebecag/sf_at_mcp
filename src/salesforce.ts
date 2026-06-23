@@ -12,6 +12,7 @@
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import * as fixtures from './salesforce.fixtures.js';
 
 const run = promisify(execFile);
 
@@ -36,10 +37,13 @@ async function runSf<T>(args: string[]): Promise<T> {
     const r = await run(SF_BIN, [...args, '--json'], {
       maxBuffer: MAX_BUFFER,
       timeout: TIMEOUT_MS,
+      env: {
+        ...process.env,
+        SF_USE_GENERIC_UNIX_KEYCHAIN: process.env.SF_USE_GENERIC_UNIX_KEYCHAIN ?? 'true',
+      },
     });
     stdout = r.stdout;
   } catch (err) {
-    // sf exits non-zero on Salesforce errors but still prints a JSON envelope.
     const e = err as { stdout?: string; message?: string };
     if (!e.stdout) throw new Error(e.message ?? 'sf command failed to run');
     stdout = e.stdout;
@@ -57,14 +61,43 @@ async function runSf<T>(args: string[]): Promise<T> {
   return parsed.result;
 }
 
+/** Strip instance host from a full nextRecordsUrl — sf api request rest wants a path. */
+export function normalizeQueryLocator(locator: string): string {
+  const trimmed = locator.trim();
+  try {
+    if (trimmed.startsWith('http')) return new URL(trimmed).pathname + new URL(trimmed).search;
+  } catch {
+    /* fall through */
+  }
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+function useFixtures(): boolean {
+  return process.env.SF_FIXTURE_MODE === 'mock';
+}
+
 export function query(soql: string): Promise<unknown> {
+  if (useFixtures()) return Promise.resolve(fixtures.fixtureQuery(soql));
   return runSf(['data', 'query', '--query', soql, '--target-org', targetOrg()]);
 }
 
+export function queryMore(queryLocator: string): Promise<unknown> {
+  if (useFixtures()) {
+    return Promise.resolve(fixtures.fixtureQueryMore(normalizeQueryLocator(queryLocator)));
+  }
+  const path = normalizeQueryLocator(queryLocator);
+  return runSf(['api', 'request', 'rest', path, '--method', 'GET', '--target-org', targetOrg()]);
+}
+
 export function describe(sobject: string): Promise<unknown> {
+  if (useFixtures()) {
+    if (sobject === 'Lead') return Promise.resolve(fixtures.FIXTURE_LEAD_DESCRIBE);
+    return Promise.resolve({ name: sobject, label: sobject, fields: [] });
+  }
   return runSf(['sobject', 'describe', '--sobject', sobject, '--target-org', targetOrg()]);
 }
 
 export function orgInfo(): Promise<unknown> {
+  if (useFixtures()) return Promise.resolve(fixtures.FIXTURE_ORG);
   return runSf(['org', 'display', '--target-org', targetOrg()]);
 }

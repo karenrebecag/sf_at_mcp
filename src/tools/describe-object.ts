@@ -1,47 +1,55 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { describe } from '../salesforce.js';
+import type { DescribeMode } from '../core/describe/filter.js';
+import { errorToolResult, jsonToolResult } from '../core/format/tool-result.js';
+import { fetchObjectDescribe } from '../services/describe.js';
 
 export const describeObjectSchema = {
   type: 'object',
   properties: {
     sobject: {
       type: 'string',
+      description: 'API name: Lead, Account, or Contact (use mode=full for other objects).',
+    },
+    mode: {
+      type: 'string',
+      enum: ['curated', 'picklists', 'full'],
       description:
-        'API name of the sObject to describe, e.g. "Account", "Opportunity", "Custom__c"',
+        'curated (default) = high-signal fields from schema; picklists = filter fields only; full = all fields.',
+    },
+    search: {
+      type: 'string',
+      description: 'Optional filter on field name or label (e.g. "country", "utm").',
+    },
+    field: {
+      type: 'string',
+      description: 'Optional exact API field name (e.g. Status, Country_of_Residence_Lead__c).',
     },
   },
   required: ['sobject'],
   additionalProperties: false,
 } as const;
 
-export async function handleDescribeObject(args: { sobject?: unknown }): Promise<CallToolResult> {
+export async function handleDescribeObject(args: {
+  sobject?: unknown;
+  mode?: unknown;
+  search?: unknown;
+  field?: unknown;
+}) {
   const sobject = typeof args.sobject === 'string' ? args.sobject.trim() : '';
-  if (!sobject) {
-    return {
-      isError: true,
-      content: [{ type: 'text', text: 'Missing required parameter: sobject' }],
-    };
-  }
+  if (!sobject) return errorToolResult('Missing required parameter: sobject');
+
+  const mode = parseMode(args.mode);
+  const search = typeof args.search === 'string' ? args.search : undefined;
+  const field = typeof args.field === 'string' ? args.field : undefined;
 
   try {
-    const result = (await describe(sobject)) as {
-      name?: string;
-      label?: string;
-      fields?: Array<{ name: string; label: string; type: string; relationshipName?: string }>;
-    };
-    // Trim the describe payload to the fields most useful to the model.
-    const summary = {
-      name: result.name,
-      label: result.label,
-      fields: (result.fields ?? []).map((f) => ({
-        name: f.name,
-        label: f.label,
-        type: f.type,
-        ...(f.relationshipName ? { relationshipName: f.relationshipName } : {}),
-      })),
-    };
-    return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] };
+    const data = await fetchObjectDescribe(sobject, { mode, search, field });
+    return jsonToolResult(data);
   } catch (err) {
-    return { isError: true, content: [{ type: 'text', text: String(err) }] };
+    return errorToolResult(String(err));
   }
+}
+
+function parseMode(value: unknown): DescribeMode {
+  if (value === 'picklists' || value === 'full' || value === 'curated') return value;
+  return 'curated';
 }

@@ -7,40 +7,51 @@ import {
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { INSTRUCTIONS } from './instructions.js';
-import { SCHEMA_MD, SCHEMA_RESOURCE_URI } from './schema.js';
-import { handleSoqlQuery, soqlQuerySchema } from './tools/soql-query.js';
-import { handleDescribeObject, describeObjectSchema } from './tools/describe-object.js';
-import { handleGetOrgInfo, getOrgInfoSchema } from './tools/get-org-info.js';
+import { SCHEMA_RESOURCES } from './schema/resources.js';
+import {
+  aggregateSchema,
+  describeObjectSchema,
+  getOrgInfoSchema,
+  getRecordSchema,
+  handleAggregate,
+  handleDescribeObject,
+  handleGetOrgInfo,
+  handleGetRecord,
+  handleListPicklists,
+  handleSearchRecords,
+  handleSoqlQuery,
+  listPicklistsSchema,
+  searchRecordsSchema,
+  soqlQuerySchema,
+} from './tools/index.js';
+
+const READ_ONLY = { readOnlyHint: true, openWorldHint: true } as const;
 
 export function createServer(): Server {
   const server = new Server(
     {
       name: 'salesforce-atfx-mcp',
-      version: '0.1.0',
+      version: '0.2.0',
       title: 'Salesforce ATFX',
-      description: 'Read-only access to the ATFX Salesforce org (SOQL, describe, org info).',
+      description: 'Read-only access to the ATFX Salesforce org — semantic tools + guarded SOQL.',
     },
     { capabilities: { tools: {}, resources: {} }, instructions: INSTRUCTIONS },
   );
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: [
-      {
-        uri: SCHEMA_RESOURCE_URI,
-        name: 'ATFX Salesforce data dictionary',
-        description:
-          'Curated schema: key objects (Lead, Account, Contact), high-signal fields, picklist values and SOQL patterns. Read before building queries with unfamiliar fields.',
-        mimeType: 'text/markdown',
-      },
-    ],
+    resources: SCHEMA_RESOURCES.map((r) => ({
+      uri: r.uri,
+      name: r.name,
+      description: r.description,
+      mimeType: 'text/markdown',
+    })),
   }));
 
   server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
-    if (req.params.uri !== SCHEMA_RESOURCE_URI) {
-      throw new Error(`Unknown resource: ${req.params.uri}`);
-    }
+    const resource = SCHEMA_RESOURCES.find((r) => r.uri === req.params.uri);
+    if (!resource) throw new Error(`Unknown resource: ${req.params.uri}`);
     return {
-      contents: [{ uri: SCHEMA_RESOURCE_URI, mimeType: 'text/markdown', text: SCHEMA_MD }],
+      contents: [{ uri: resource.uri, mimeType: 'text/markdown', text: resource.text }],
     };
   });
 
@@ -51,34 +62,70 @@ export function createServer(): Server {
         description:
           'Get the authenticated user and the connected Salesforce org (instance URL, user, org id). Call first to confirm context.',
         inputSchema: getOrgInfoSchema,
-        annotations: { readOnlyHint: true, openWorldHint: true },
+        annotations: READ_ONLY,
       },
       {
         name: 'salesforce_atfx_describe_object',
         description:
-          "Describe an sObject's fields, types and relationships. Use before querying unfamiliar objects to get exact API field names.",
+          "Describe an sObject's fields. Default mode=curated (high-signal ATFX fields). Use mode=picklists for filter values; mode=full for exhaustive list.",
         inputSchema: describeObjectSchema,
-        annotations: { readOnlyHint: true, openWorldHint: true },
+        annotations: READ_ONLY,
+      },
+      {
+        name: 'salesforce_atfx_list_picklists',
+        description:
+          'List picklist fields and values for Lead, Account, or Contact — optimized for filter dropdowns.',
+        inputSchema: listPicklistsSchema,
+        annotations: READ_ONLY,
+      },
+      {
+        name: 'salesforce_atfx_aggregate',
+        description:
+          'Run semantic aggregates (COUNT by groupBy) without writing SOQL. Prefer over soql_query for KPIs.',
+        inputSchema: aggregateSchema,
+        annotations: READ_ONLY,
+      },
+      {
+        name: 'salesforce_atfx_search_records',
+        description:
+          'Search Lead, Account, or Contact by email, name, status, country, BDM, or date window.',
+        inputSchema: searchRecordsSchema,
+        annotations: READ_ONLY,
+      },
+      {
+        name: 'salesforce_atfx_get_record',
+        description: 'Fetch a single Lead, Account, or Contact record by Salesforce Id.',
+        inputSchema: getRecordSchema,
+        annotations: READ_ONLY,
       },
       {
         name: 'salesforce_atfx_soql_query',
         description:
-          'Run a read-only SOQL SELECT query against the ATFX org and return matching records.',
+          'Run a read-only SOQL SELECT (escape hatch). Supports queryLocator pagination. Guardrails: auto-LIMIT, truncation, Account requires WHERE or aggregates.',
         inputSchema: soqlQuerySchema,
-        annotations: { readOnlyHint: true, openWorldHint: true },
+        annotations: READ_ONLY,
       },
     ],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
     const { name, arguments: args = {} } = req.params;
+    const a = args as Record<string, unknown>;
     switch (name) {
       case 'salesforce_atfx_get_org_info':
         return handleGetOrgInfo();
       case 'salesforce_atfx_describe_object':
-        return handleDescribeObject(args as { sobject?: unknown });
+        return handleDescribeObject(a);
+      case 'salesforce_atfx_list_picklists':
+        return handleListPicklists(a);
+      case 'salesforce_atfx_aggregate':
+        return handleAggregate(a);
+      case 'salesforce_atfx_search_records':
+        return handleSearchRecords(a);
+      case 'salesforce_atfx_get_record':
+        return handleGetRecord(a);
       case 'salesforce_atfx_soql_query':
-        return handleSoqlQuery(args as { query?: unknown });
+        return handleSoqlQuery(a);
       default:
         return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
     }

@@ -1,6 +1,6 @@
 {
   "name": "salesforce-atfx-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Remote read-only MCP connector for Claude web — queries the ATFX Salesforce org via the locally-authenticated sf CLI (SOQL, describe, org info)",
   "type": "module",
   "private": true,
@@ -17,7 +17,10 @@
     "format:check": "prettier --check 'src/**/*.ts'",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "pnpm check && pnpm lint && pnpm format:check && pnpm test"
+    "verify": "pnpm check && pnpm lint && pnpm format:check && pnpm test",
+    "smoke:mcp": "tsx scripts/smoke-mcp.ts",
+    "smoke:local": "tsx scripts/run-smoke-local.ts",
+    "predeploy": "pnpm verify && pnpm build && pnpm smoke:local"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

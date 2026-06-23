@@ -10,53 +10,26 @@
  *
  * Anyone with that exact URL can query as the CLI-authenticated user, so treat it
  * like a password. A Bearer header with the same token is also accepted.
+ *
+ * REST API for dashboards lives under /api (or /<token>/api) with the same auth.
  */
-import { createServer as createHttpServer, type IncomingMessage } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { createServer as createHttpServer } from 'node:http';
+import { accessTokenConfigured, presentedToken, tokenMatches } from './api/auth.js';
+import { handleApiRequest } from './api/router.js';
+import { readBody, setCorsHeaders } from './api/http.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer } from './server.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
-const ACCESS_TOKEN = process.env.MCP_ACCESS_TOKEN;
 
-if (!ACCESS_TOKEN || ACCESS_TOKEN.length < 24) {
+if (!accessTokenConfigured()) {
   process.stderr.write('MCP_ACCESS_TOKEN must be set and at least 24 chars.\n');
   process.exit(1);
 }
 
-function tokenMatches(presented: string | undefined): boolean {
-  if (!presented) return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(ACCESS_TOKEN as string);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-/** Token from the leading path segment (/<token>/mcp) or a Bearer header. */
-function presentedToken(req: IncomingMessage, pathname: string): string | undefined {
-  const m = pathname.match(/^\/([^/]+)\/mcp$/);
-  if (m) return decodeURIComponent(m[1]);
-  const auth = req.headers['authorization'];
-  if (typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7);
-  return undefined;
-}
-
-async function readBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
-  if (chunks.length === 0) return undefined;
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    return undefined;
-  }
-}
-
 const httpServer = createHttpServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
-
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
+  setCorsHeaders(res);
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -69,6 +42,9 @@ const httpServer = createHttpServer(async (req, res) => {
     res.end(JSON.stringify({ status: 'ok' }));
     return;
   }
+
+  const handledApi = await handleApiRequest(req, res, url.pathname, url.searchParams);
+  if (handledApi) return;
 
   const isMcpPath = url.pathname === '/mcp' || /^\/[^/]+\/mcp$/.test(url.pathname);
   if (!isMcpPath) {

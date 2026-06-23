@@ -1,5 +1,5 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { query } from '../salesforce.js';
+import { errorToolResult, jsonToolResult, mergeMeta } from '../core/format/tool-result.js';
+import { runSoql } from '../services/salesforce-data.js';
 
 export const soqlQuerySchema = {
   type: 'object',
@@ -7,34 +7,44 @@ export const soqlQuerySchema = {
     query: {
       type: 'string',
       description:
-        'A read-only SOQL SELECT statement, e.g. "SELECT Id, Name FROM Account LIMIT 10"',
+        'Read-only SOQL SELECT. Non-aggregates without LIMIT get LIMIT 200 auto-appended. Omit when using queryLocator.',
+    },
+    queryLocator: {
+      type: 'string',
+      description: 'nextRecordsUrl from a previous response — fetches the next page.',
+    },
+    maxRecords: {
+      type: 'number',
+      description: 'Max records returned per page in the tool response (default 50).',
     },
   },
-  required: ['query'],
   additionalProperties: false,
 } as const;
 
-const SELECT_ONLY = /^\s*SELECT\s/i;
-
-export async function handleSoqlQuery(args: { query?: unknown }): Promise<CallToolResult> {
+export async function handleSoqlQuery(args: {
+  query?: unknown;
+  queryLocator?: unknown;
+  maxRecords?: unknown;
+}) {
+  const queryLocator = typeof args.queryLocator === 'string' ? args.queryLocator.trim() : '';
   const soql = typeof args.query === 'string' ? args.query.trim() : '';
-  if (!soql) {
-    return {
-      isError: true,
-      content: [{ type: 'text', text: 'Missing required parameter: query' }],
-    };
-  }
-  if (!SELECT_ONLY.test(soql)) {
-    return {
-      isError: true,
-      content: [{ type: 'text', text: 'Only read-only SOQL SELECT queries are allowed.' }],
-    };
+  const maxRecords = typeof args.maxRecords === 'number' ? args.maxRecords : undefined;
+
+  if (!soql && !queryLocator) {
+    return errorToolResult('Provide query or queryLocator.');
   }
 
   try {
-    const result = await query(soql);
-    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    const { result, warnings, truncated, hints } = await runSoql(soql || undefined, {
+      queryLocator: queryLocator || undefined,
+      maxRecords,
+    });
+    const meta = mergeMeta(undefined, {
+      ...(warnings.length ? { warnings } : {}),
+      ...(truncated ? { truncated: true } : {}),
+    });
+    return jsonToolResult(result, Object.keys(meta).length ? meta : undefined, { hints });
   } catch (err) {
-    return { isError: true, content: [{ type: 'text', text: String(err) }] };
+    return errorToolResult(String(err));
   }
 }
