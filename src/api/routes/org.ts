@@ -4,8 +4,8 @@ import type { ApiHandler } from '../types.js';
 
 export const getOrg: ApiHandler = async ({ res }) => {
   try {
-    const data = await fetchOrgSummary();
-    sendApiResult(res, 200, data);
+    const { data, cached } = await fetchOrgSummary();
+    sendApiResult(res, 200, data, { cached });
   } catch (err) {
     sendApiError(res, String(err));
   }

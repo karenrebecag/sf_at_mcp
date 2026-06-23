@@ -1,0 +1,12 @@
+# Local Redis for API response caching — optional, server works without it.
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - atfx-redis:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+volumes:
+  atfx-redis:

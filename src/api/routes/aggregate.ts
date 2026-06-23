@@ -1,4 +1,9 @@
+import { createHash } from 'node:crypto';
 import { buildAggregateQuery } from '../../core/queries/aggregate.js';
+
+function hashKey(input: string): string {
+  return createHash('sha256').update(input).digest('hex').slice(0, 16);
+}
 import { sendApiError, sendApiResult } from '../response.js';
 import { runSoql } from '../../services/salesforce-data.js';
 import type { ApiHandler } from '../types.js';
@@ -16,9 +21,11 @@ export const postAggregate: ApiHandler = async ({ res, body }) => {
       orderBy: payload.orderBy === 'asc' ? 'asc' : 'desc',
       limit: typeof payload.limit === 'number' ? payload.limit : undefined,
     });
-    const { result, warnings, truncated, hints } = await runSoql(soql);
+    const cacheKey = `atfx:aggregate:${hashKey(JSON.stringify(payload))}`;
+    const { result, warnings, truncated, hints, cached } = await runSoql(soql, { cacheKey });
     sendApiResult(res, 200, result, {
       soql,
+      cached,
       ...(warnings.length ? { warnings } : {}),
       ...(truncated ? { truncated: true } : {}),
       ...(hints.length ? { hints } : {}),

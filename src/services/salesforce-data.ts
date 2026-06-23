@@ -1,3 +1,4 @@
+import { defaultCacheTtlMs, withCache } from '../core/cache/redis.js';
 import { truncateQueryResult } from '../core/format/truncate-result.js';
 import { assertSoqlQueryLocator } from '../core/query-locator.js';
 import { prepareSoql } from '../core/soql-guards.js';
@@ -6,9 +7,30 @@ import { describe, orgInfo, query, queryMore } from '../salesforce.js';
 export interface RunSoqlOptions {
   maxRecords?: number;
   queryLocator?: string;
+  /** Redis cache key — when set, SOQL result is cached (optional REDIS_URL). */
+  cacheKey?: string;
+  cacheTtlMs?: number;
 }
 
-export async function fetchOrgSummary() {
+export interface RunSoqlResult {
+  result: unknown;
+  warnings: string[];
+  truncated: boolean;
+  hints: string[];
+  cached: boolean;
+}
+
+type SoqlPayload = Omit<RunSoqlResult, 'cached'>;
+
+export async function fetchOrgSummary(): Promise<{
+  data: Awaited<ReturnType<typeof loadOrgSummary>>;
+  cached: boolean;
+}> {
+  const { value, cached } = await withCache('atfx:org', defaultCacheTtlMs(), loadOrgSummary);
+  return { data: value, cached };
+}
+
+async function loadOrgSummary() {
   const info = (await orgInfo()) as Record<string, unknown>;
   return {
     username: info.username,
@@ -20,10 +42,7 @@ export async function fetchOrgSummary() {
   };
 }
 
-export async function runSoql(
-  raw?: string,
-  options: RunSoqlOptions = {},
-): Promise<{ result: unknown; warnings: string[]; truncated: boolean; hints: string[] }> {
+async function executeSoql(raw: string | undefined, options: RunSoqlOptions): Promise<SoqlPayload> {
   const queryText = raw?.trim() ?? '';
   const locatorText = options.queryLocator?.trim() ?? '';
 
@@ -48,6 +67,20 @@ export async function runSoql(
 
   const { result: shaped, truncated, hints } = truncateQueryResult(result, options.maxRecords);
   return { result: shaped, warnings, truncated, hints };
+}
+
+export async function runSoql(raw?: string, options: RunSoqlOptions = {}): Promise<RunSoqlResult> {
+  const { cacheKey, cacheTtlMs, ...execOptions } = options;
+
+  if (cacheKey) {
+    const { value, cached } = await withCache(cacheKey, cacheTtlMs ?? defaultCacheTtlMs(), () =>
+      executeSoql(raw, execOptions),
+    );
+    return { ...value, cached };
+  }
+
+  const payload = await executeSoql(raw, execOptions);
+  return { ...payload, cached: false };
 }
 
 export async function fetchRawDescribe(sobject: string) {

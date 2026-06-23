@@ -21,9 +21,12 @@ export const getRecord: ApiHandler = async ({ res, params, searchParams }) => {
 
   try {
     const soql = buildGetRecordQuery(object, id, fields);
-    const { result, warnings, hints } = await runSoql(soql, { maxRecords: 1 });
+    const fieldsKey = fields?.join(',') ?? 'default';
+    const cacheKey = `atfx:record:${object}:${id}:${fieldsKey}`;
+    const { result, warnings, hints, cached } = await runSoql(soql, { maxRecords: 1, cacheKey });
     sendApiResult(res, 200, result, {
       soql,
+      cached,
       ...(warnings.length ? { warnings } : {}),
       ...(hints.length ? { hints } : {}),
     });

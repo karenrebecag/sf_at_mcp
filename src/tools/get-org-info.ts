@@ -9,8 +9,8 @@ export const getOrgInfoSchema = {
 
 export async function handleGetOrgInfo() {
   try {
-    const data = await fetchOrgSummary();
-    return jsonToolResult(data);
+    const { data, cached } = await fetchOrgSummary();
+    return jsonToolResult(data, cached ? { cached: true } : undefined);
   } catch (err) {
     return errorToolResult(String(err));
   }
